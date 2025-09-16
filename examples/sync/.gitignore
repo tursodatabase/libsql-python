@@ -1,1 +1,3 @@
 local.db*
+.env
+__pycache__/
