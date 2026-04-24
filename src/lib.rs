@@ -259,6 +259,19 @@ impl Connection {
     }
 
     fn sync(self_: PyRef<'_, Self>, py: Python<'_>) -> PyResult<()> {
+        let warnings = py.import("warnings").map_err(to_py_err)?;
+        warnings.call_method1(
+            "warn",
+            (
+                "sync() is deprecated and will be removed in a future release. Use `pyturso` instead. Learn more: https://tur.so/newsync",
+                py.import("builtins")
+                    .map_err(to_py_err)?
+                    .getattr("DeprecationWarning")
+                    .map_err(to_py_err)?,
+                2i32,
+            ),
+        ).map_err(to_py_err)?;
+
         let fut = {
             let _enter = rt().enter();
             self_.db.sync()
