@@ -7,11 +7,14 @@ name = "libsql"
 version = "0.1.11"
 requires-python = ">=3.7"
 classifiers = [
-    "Programming Language :: Rust",
-    "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: PyPy",
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
 ]
 
+
+[project.optional-dependencies]
+dev = ["maturin>=1.1,<2.0"]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]

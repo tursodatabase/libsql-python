@@ -1,8 +1,8 @@
 use ::libsql as libsql_core;
-use pyo3::create_exception;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyModule, PyTuple};
+use pyo3::{BoundObject, create_exception};
 use std::cell::RefCell;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -640,7 +640,7 @@ async fn execute<'py>(
         }
         None => libsql_core::params::Params::None,
     };
-    let mut stmt = cursor
+    let stmt = cursor
         .conn
         .borrow()
         .as_ref()
@@ -686,7 +686,7 @@ fn stmt_is_dml(sql: &str) -> bool {
 }
 
 fn convert_row(
-    py: Python,
+    py: Python<'_>,
     row: libsql_core::Row,
     column_count: i32,
 ) -> PyResult<Bound<'_, PyTuple>> {
@@ -713,12 +713,14 @@ fn convert_row(
 
 create_exception!(libsql, Error, pyo3::exceptions::PyException);
 
-impl<'py> FromPyObject<'py> for ListOrTuple<'py> {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        if let Ok(list) = ob.downcast::<PyList>() {
-            Ok(ListOrTuple::List(list.clone()))
-        } else if let Ok(tuple) = ob.downcast::<PyTuple>() {
-            Ok(ListOrTuple::Tuple(tuple.clone()))
+impl<'a, 'py> FromPyObject<'a, 'py> for ListOrTuple<'py> {
+    type Error = PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(list) = obj.cast::<PyList>() {
+            Ok(ListOrTuple::List(list.into_bound()))
+        } else if let Ok(tuple) = obj.cast::<PyTuple>() {
+            Ok(ListOrTuple::Tuple(tuple.into_bound()))
         } else {
             Err(PyValueError::new_err(
                 "Expected a list or tuple for parameters",
