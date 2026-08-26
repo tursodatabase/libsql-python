@@ -1,10 +1,64 @@
 #!/usr/bin/env python3
 
+import os
 import sqlite3
 import sys
+import threading
+import time
 import libsql
 import pytest
 import tempfile
+
+
+def test_blocking_execute_releases_gil():
+    # https://github.com/tursodatabase/libsql-python/issues/113
+    #
+    # A blocked cursor.execute() must not hold the GIL, otherwise a
+    # Python-level timeout (e.g. concurrent.futures.Future.result(timeout=)
+    # from another thread) can never actually fire: the waiting thread times
+    # out at the OS level but then hangs trying to reacquire the GIL from the
+    # thread stuck inside the extension call.
+    #
+    # Here one connection holds a write lock and a second connection blocks
+    # on it (via sqlite's busy handler, entirely inside the Rust extension).
+    # A background thread ticks a counter while the main thread is blocked;
+    # if the GIL isn't released the ticker starves for the whole wait.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = os.path.join(tmpdir, "locked.db")
+        wait_seconds = 1.5
+
+        writer = libsql.connect(path, timeout=wait_seconds)
+        writer.execute("CREATE TABLE t (x INTEGER)")
+        writer.execute("BEGIN IMMEDIATE")
+        writer.execute("INSERT INTO t VALUES (1)")
+
+        blocked = libsql.connect(path, timeout=wait_seconds)
+
+        ticks = []
+        stop = threading.Event()
+
+        def ticker():
+            while not stop.is_set():
+                ticks.append(time.monotonic())
+                time.sleep(0.05)
+
+        ticker_thread = threading.Thread(target=ticker, daemon=True)
+        ticker_thread.start()
+        try:
+            with pytest.raises(Exception):
+                blocked.execute("INSERT INTO t VALUES (2)")
+        finally:
+            stop.set()
+            ticker_thread.join(timeout=5)
+            writer.rollback()
+
+        # With the GIL held throughout the blocking call, the ticker thread
+        # would be starved and record close to zero ticks during the wait.
+        assert len(ticks) >= 5, (
+            f"background thread only ticked {len(ticks)} times while "
+            f"cursor.execute() was blocked for ~{wait_seconds}s -- GIL was "
+            "likely held during the blocking call"
+        )
 
 
 @pytest.mark.parametrize("provider", ["libsql", "sqlite"])
